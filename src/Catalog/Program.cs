@@ -1,4 +1,9 @@
+using Catalog.Endpoints;
+using Catalog.Infrastructure.Extensions;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddApplicationServices();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -12,5 +17,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.MapGroup("/api/v1/brands")
+    .WithTags("Brands Api")
+    .MapCatalogBrandEndpoints();
 
 app.Run();
