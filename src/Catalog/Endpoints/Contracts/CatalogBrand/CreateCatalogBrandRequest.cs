@@ -1,6 +1,6 @@
 using FluentValidation;
 
-namespace Catalog.Endpoints.Contracts;
+namespace Catalog.Endpoints.Contracts.CatalogBrand;
 
 public sealed record CreateCatalogBrandRequest(string Brand);
 

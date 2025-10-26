@@ -1,4 +1,5 @@
 using Catalog.Endpoints.Contracts;
+using Catalog.Endpoints.Contracts.CatalogBrand;
 using Catalog.Models;
 using Catalog.Services;
 using FluentValidation;
@@ -12,6 +13,7 @@ public static class CatalogBrandEndpoints
     public static IEndpointRouteBuilder MapCatalogBrandEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/", CreateBrand);
+        app.MapPut("/", UpdateBrand);
 
         return app;
     }
@@ -23,7 +25,7 @@ public static class CatalogBrandEndpoints
         CancellationToken cancellationToken
     )
     {
-        var validate = await validator.ValidateAsync(model);
+        var validate = await validator.ValidateAsync(model, cancellationToken);
         if (!validate.IsValid)
             return TypedResults.ValidationProblem(validate.ToDictionary());
 
@@ -32,10 +34,33 @@ public static class CatalogBrandEndpoints
         {
             return TypedResults.BadRequest($"A brand with the name '{model.Brand}' already exists.");
         }
-        
+
         var brand = CatalogBrand.Create(model.Brand);
 
         services.Context.CatalogBrands.Add(brand);
+        await services.Context.SaveChangesAsync(cancellationToken);
+
+        return TypedResults.Created($"/catalog/api/v1/brands/{brand.Id}");
+    }
+
+    public static async Task<Results<Created, ValidationProblem, NotFound<string>>> UpdateBrand(
+        UpdateCatalogBrandRequest model,
+        [AsParameters] CatalogServices services,
+        IValidator<UpdateCatalogBrandRequest> validator,
+        CancellationToken cancellationToken)
+    {
+        var validate = await validator.ValidateAsync(model, cancellationToken);
+
+        if (!validate.IsValid)
+            return TypedResults.ValidationProblem(validate.ToDictionary());
+        
+        var brand = await services.Context.CatalogBrands.FirstOrDefaultAsync(i => i.Id == model.Id, cancellationToken);
+        if (brand is null)
+        {
+            return TypedResults.NotFound($"Brand with id {model.Id} not found.");
+        }
+
+        brand.Update(model.Brand);
         await services.Context.SaveChangesAsync(cancellationToken);
 
         return TypedResults.Created($"/catalog/api/v1/brands/{brand.Id}");
