@@ -1,5 +1,6 @@
 using Catalog.Endpoints.Contracts.CatalogItem;
 using Catalog.Infrastructure.Extensions;
+using Catalog.Infrastructure.IntegrationEvents.CatalogItem;
 using Catalog.Models;
 using Catalog.Services;
 using FluentValidation;
@@ -22,7 +23,7 @@ public static class CatalogItemEndpoints
         return app;
     }
 
-    public static async Task<Results<Created, ValidationProblem, BadRequest<string>>> CreateItem(
+    private static async Task<Results<Created, ValidationProblem, BadRequest<string>>> CreateItem(
         [AsParameters] CatalogServices services,
         CreateCatalogItemRequest model,
         IValidator<CreateCatalogItemRequest> validator,
@@ -58,10 +59,25 @@ public static class CatalogItemEndpoints
 
         var detailUrl = $"/catalog/api/v1/items/{item.Slug}";
 
+        var loadedItem = await services.Context.CatalogItems
+            .Include(ci => ci.CatalogBrand)
+            .Include(ci => ci.CatalogCategory)
+            .FirstAsync(x => x.Slug == item.Slug, cancellationToken: cancellationToken);
+
+        await services.PublishEndpoint.Publish(
+            new CatalogItemAddedEvent(
+                loadedItem.Name,
+                loadedItem.Description,
+                loadedItem.CatalogBrand.Brand,
+                loadedItem.CatalogBrand.Brand,
+                loadedItem.Slug,
+                detailUrl
+            ), cancellationToken);
+
         return TypedResults.Created(detailUrl);
     }
 
-    public static async Task<Results<Created, ValidationProblem, NotFound<string>, BadRequest<string>>> UpdateItem(
+    private static async Task<Results<Created, ValidationProblem, NotFound<string>, BadRequest<string>>> UpdateItem(
         [AsParameters] CatalogServices services,
         UpdateCatalogItemRequest model,
         IValidator<UpdateCatalogItemRequest> validator,
@@ -99,38 +115,47 @@ public static class CatalogItemEndpoints
             .FirstAsync(x => x.Slug == item.Slug, cancellationToken);
 
         var detailUrl = $"/catalog/api/v1/items/{loadedItem.Slug}";
+        
+        await services.PublishEndpoint.Publish(new CatalogItemChangedEvent(
+            loadedItem.Name,
+            loadedItem.Description,
+            loadedItem.CatalogCategory.Category,
+            loadedItem.CatalogBrand.Brand,
+            loadedItem.Slug,
+            detailUrl
+        ), cancellationToken);
 
         return TypedResults.Created(detailUrl);
     }
 
-    public static async Task<Results<Created, ValidationProblem, NotFound<string>, BadRequest<string>>>
+    private static async Task<Results<Created, ValidationProblem, NotFound<string>, BadRequest<string>>>
         UpdateMaxStockThreshold(
             [AsParameters] CatalogServices services,
             UpdateCatalogItemMaxStockThresholdRequest itemToUpdate,
             IValidator<UpdateCatalogItemMaxStockThresholdRequest> validator,
             CancellationToken cancellationToken)
     {
-        var validate = validator.Validate(itemToUpdate);
+        var validate = await validator.ValidateAsync(itemToUpdate, cancellationToken);
         if (!validate.IsValid)
         {
             return TypedResults.ValidationProblem(validate.ToDictionary());
         }
 
-        var Item = await services.Context.CatalogItems.FirstOrDefaultAsync(i => i.Slug == itemToUpdate.Slug,
+        var item = await services.Context.CatalogItems.FirstOrDefaultAsync(i => i.Slug == itemToUpdate.Slug,
             cancellationToken);
-        if (Item is null)
+        if (item is null)
         {
             return TypedResults.NotFound($"Item with Slug {itemToUpdate.Slug} not found.");
         }
 
-        Item.SetMaxStockThreshold(itemToUpdate.MaxStockThreshold);
+        item.SetMaxStockThreshold(itemToUpdate.MaxStockThreshold);
 
         await services.Context.SaveChangesAsync(cancellationToken);
 
-        return TypedResults.Created($"/catalog/api/v1/items/{Item.Slug}");
+        return TypedResults.Created($"/catalog/api/v1/items/{item.Slug}");
     }
 
-    public static async Task<Results<NoContent, NotFound, BadRequest<string>>> DeleteItemById(
+    private static async Task<Results<NoContent, NotFound, BadRequest<string>>> DeleteItemById(
         [AsParameters] CatalogServices services,
         string slug,
         CancellationToken cancellationToken)
@@ -149,7 +174,7 @@ public static class CatalogItemEndpoints
         return TypedResults.NoContent();
     }
 
-    public static async Task<Results<Ok<CatalogItemResponse>, NotFound, BadRequest<string>>> GetItemById(
+    private static async Task<Results<Ok<CatalogItemResponse>, NotFound, BadRequest<string>>> GetItemById(
         [AsParameters] CatalogServices services,
         string slug,
         CancellationToken cancellationToken)
@@ -179,7 +204,7 @@ public static class CatalogItemEndpoints
                 item.MaxStockThreshold, [.. item.Medias]));
     }
 
-    public static async Task<Results<Ok<IEnumerable<CatalogItemResponse>>, BadRequest<string>>> GetItems(
+    private static async Task<Results<Ok<IEnumerable<CatalogItemResponse>>, BadRequest<string>>> GetItems(
         [AsParameters] CatalogServices services,
         CancellationToken cancellationToken)
     {
